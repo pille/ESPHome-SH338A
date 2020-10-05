@@ -28,6 +28,10 @@ jobs:
           python --version
           echo ESPHome $(esphome version)
 
-      - name: compile
+      - name: Complete Config
+        run: |
+          cp -a secrets.yaml.sample secrets.yaml
+
+      - name: Compile
         run: |
           esphome SH338A.yaml compile
