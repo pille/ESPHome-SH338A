@@ -1,0 +1,504 @@
+substitutions:
+  base_name: sh338a
+  # to be set/overridden via cmdline (-s append_name 123)
+  append_name: ""
+  device_name: ${base_name}${append_name}
+  display_name: SH338A${append_name}
+
+esphome:
+  name: ${device_name}
+  #comment:
+  platform: ESP8266
+  board: esp8285
+  arduino_version: 2.4.2
+  on_boot:
+    priority: "-100.0"
+    then:
+      # safety delay after boot, before main loop is launched
+      - delay: 10s
+      - script.execute: ${device_name}_led_loop
+  on_shutdown:
+    then:
+      # disable everything before OTA
+      - script.stop: ${device_name}_led_loop
+      - switch.turn_off: ${device_name}_relay
+      - light.turn_off: ${device_name}_led
+
+<<: !include common.yaml
+
+
+sensor:
+  # common onboard sensors
+  - platform: uptime
+    id: ${device_name}_uptime
+    name: "${display_name} Uptime"
+  - platform: wifi_signal
+    id: ${device_name}_wifi_signal
+    name: "${display_name} WiFi Signal"
+    update_interval: 10s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 6
+  - platform: adc
+    pin: VCC
+    id: ${device_name}_voltage
+    name: "${display_name} VCC Voltage"
+    update_interval: 10s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 6
+
+text_sensor:
+  - platform: template
+    name: "countdown"
+    lambda: return to_string(id(countdown_seconds));
+    update_interval: 10s
+  - platform: template
+    name: "max LED brightness"
+    lambda: return to_string(id(led_brightness));
+    update_interval: 60s
+  - platform: template
+    name: "mode"
+    id: mode_text
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO13
+      inverted: True
+    id: ${device_name}_button
+    name: "${display_name} Button"
+    on_press:
+      then:
+        - script.execute: ${device_name}_led_pulse_1s_while_button_pressed
+    on_multi_click:
+      - timing:
+          - ON for at most 0.250s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Single Short Click"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - switch.toggle: ${device_name}_relay
+      - timing:
+          - ON for 0.500s to 1.499s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Single Long Click around 1s"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(countdown_seconds) = 60;"
+          - script.execute: ${device_name}_countdown
+      - timing:
+          - ON for 1.500s to 2.499s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Single Long Click around 2s"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(countdown_seconds) = 120;"
+          - script.execute: ${device_name}_countdown
+      - timing:
+          - ON for 2.500s to 3.499s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Single Long Click around 3s"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(countdown_seconds) = 180;"
+          - script.execute: ${device_name}_countdown
+      - timing:
+          - ON for 3.500s to 4.499s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Single Long Click around 4s"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(countdown_seconds) = 240;"
+          - script.execute: ${device_name}_countdown
+      - timing:
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Double Click"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(countdown_seconds)*= 2;"
+      - timing:
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Tripple Click"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - script.stop: ${device_name}_countdown
+          - logger.log: "countdown canceled"
+          - lambda: "id(led_brightness)= 1.0;"
+          - logger.log:
+              format: "max brightness: %f"
+              args: [ 'id(led_brightness)' ]
+      - timing:
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at most 0.250s
+          - ON for at most 0.250s
+          - OFF for at least 0.250s
+        then:
+          - logger.log: "Quadruple Click"
+          - script.stop: ${device_name}_led_pulse_1s_while_button_pressed
+          - lambda: "id(led_brightness)-= 0.2;"
+          - logger.log:
+              format: "max brightness: %f"
+              args: [ 'id(led_brightness)' ]
+
+
+switch:
+  - platform: gpio
+    name: "${display_name} Relay"
+    pin: GPIO15
+    id: ${device_name}_relay
+    on_turn_on:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 0.5s
+    #on_turn_off:
+    #  - light.turn_off:
+    #      id: ${device_name}_led
+    #      transition_length: 0.5s
+
+
+# implement LED as PWM light, so it's dimmable (instead of binary gpio switch)
+output:
+  - platform: esp8266_pwm
+    id: ${device_name}_pwm_led
+    pin:
+      number: GPIO2
+      inverted: true
+
+light:
+  - platform: monochromatic
+    name: "${display_name} Green LED"
+    output: ${device_name}_pwm_led
+    id: ${device_name}_led
+
+globals:
+   - id: countdown_seconds
+     type: int
+     restore_value: no
+     initial_value: '0'
+   - id: led_brightness
+     type: float
+     restore_value: no
+     initial_value: '1.0'
+
+
+# LED pulse patterns
+script:
+  # fast pulse
+  - id: ${device_name}_led_pulse_1s_while_button_pressed
+    mode: restart
+    then:
+      - while:
+          condition:
+            binary_sensor.is_on: ${device_name}_button
+          then:
+            - light.toggle:
+                id: ${device_name}_led
+                transition_length: 0.5s
+            - delay: 0.5s
+            - light.toggle:
+                id: ${device_name}_led
+                transition_length: 0.5s
+            - delay: 0.5s
+  # LONG OFF, SHORT ON
+  - id: ${device_name}_led_pulse_off_1
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 0.25s
+      - delay: 0.5s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 0.25s
+      - delay: 0.25s
+
+  - id: ${device_name}_led_pulse_off_2
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 0.5s
+      - delay: 1s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 0.5s
+      - delay: 0.5s
+
+  - id: ${device_name}_led_pulse_off_3
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 1s
+      - delay: 2s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 1s
+      - delay: 1s
+
+  - id: ${device_name}_led_pulse_off_4
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 2s
+      - delay: 3s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 2s
+      - delay: 1.5s
+
+  - id: ${device_name}_led_pulse_off_5
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 3s
+      - delay: 4s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 3s
+      - delay: 2s
+
+  # LONG ON, SHORT OFF
+  - id: ${device_name}_led_pulse_on_1
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 0.25s
+      - delay: 0.5s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 0.25s
+      - delay: 0.25s
+
+  - id: ${device_name}_led_pulse_on_2
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 0.5s
+      - delay: 1s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 0.5s
+      - delay: 0.5s
+
+  - id: ${device_name}_led_pulse_on_3
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 1s
+      - delay: 2s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 1s
+      - delay: 1s
+
+  - id: ${device_name}_led_pulse_on_4
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 2s
+      - delay: 3s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 2s
+      - delay: 1.5s
+
+  - id: ${device_name}_led_pulse_on_5
+    mode: restart
+    then:
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness);
+          transition_length: 3s
+      - delay: 4s
+      - light.turn_on:
+          id: ${device_name}_led
+          brightness: !lambda return id(led_brightness) / 2;
+          transition_length: 3s
+      - delay: 2s
+
+  # MAIN LOOP for triggering LED effects
+  - id: ${device_name}_led_loop
+    mode: restart
+    then:
+      - while:
+          condition:
+            # INFINITY LOOP
+            lambda: 'return 1;'
+          then:
+            - if:
+                condition:
+                  # COUNTDOWN IS RUNNING
+                  script.is_running: ${device_name}_countdown
+                then:
+                  - text_sensor.template.publish:
+                      id: mode_text
+                      state: "COUNTDOWN"
+                  - if:
+                      condition:
+                        lambda: "return id(countdown_seconds) > 120;"
+                      then:
+                        - if:
+                            condition:
+                              switch.is_on: ${device_name}_relay
+                            then:
+                              - logger.log: "LED pulse 5 ON (long) -> OFF (short)"
+                              - script.execute: ${device_name}_led_pulse_on_5
+                              - script.wait: ${device_name}_led_pulse_on_5
+                            else:
+                              - logger.log: "LED pulse 5 OFF (long) -> ON (short)"
+                              - script.execute: ${device_name}_led_pulse_off_5
+                              - script.wait: ${device_name}_led_pulse_off_5
+                  - if:
+                      condition:
+                        lambda: "return (id(countdown_seconds) > 90 && id(countdown_seconds) <= 120);"
+                      then:
+                        - if:
+                            condition:
+                              switch.is_on: ${device_name}_relay
+                            then:
+                              - logger.log: "LED pulse 4 ON (long) -> OFF (short)"
+                              - script.execute: ${device_name}_led_pulse_on_4
+                              - script.wait: ${device_name}_led_pulse_on_4
+                            else:
+                              - logger.log: "LED pulse 4 OFF (long) -> ON (short)"
+                              - script.execute: ${device_name}_led_pulse_off_4
+                              - script.wait: ${device_name}_led_pulse_off_4
+                  - if:
+                      condition:
+                        lambda: "return (id(countdown_seconds) > 60 && id(countdown_seconds) <= 90);"
+                      then:
+                        - if:
+                            condition:
+                              switch.is_on: ${device_name}_relay
+                            then:
+                              - logger.log: "LED pulse 3 ON (long) -> OFF (short)"
+                              - script.execute: ${device_name}_led_pulse_on_3
+                              - script.wait: ${device_name}_led_pulse_on_3
+                            else:
+                              - logger.log: "LED pulse 3 OFF (long) -> ON (short)"
+                              - script.execute: ${device_name}_led_pulse_off_3
+                              - script.wait: ${device_name}_led_pulse_off_3
+                  - if:
+                      condition:
+                        lambda: "return (id(countdown_seconds) > 30 && id(countdown_seconds) <= 60);"
+                      then:
+                        - if:
+                            condition:
+                              switch.is_on: ${device_name}_relay
+                            then:
+                              - logger.log: "LED pulse 2 ON (long) -> OFF (short)"
+                              - script.execute: ${device_name}_led_pulse_on_2
+                              - script.wait: ${device_name}_led_pulse_on_2
+                            else:
+                              - logger.log: "LED pulse 2 OFF (long) -> ON (short)"
+                              - script.execute: ${device_name}_led_pulse_off_2
+                              - script.wait: ${device_name}_led_pulse_off_2
+                  - if:
+                      condition:
+                        lambda: "return (id(countdown_seconds) > 10 && id(countdown_seconds) <= 30);"
+                      then:
+                        - if:
+                            condition:
+                              switch.is_on: ${device_name}_relay
+                            then:
+                              - logger.log: "LED pulse 1 ON (long) -> OFF (short)"
+                              - script.execute: ${device_name}_led_pulse_on_1
+                              - script.wait: ${device_name}_led_pulse_on_1
+                            else:
+                              - logger.log: "LED pulse 1 OFF (long) -> ON (short)"
+                              - script.execute: ${device_name}_led_pulse_off_1
+                              - script.wait: ${device_name}_led_pulse_off_1
+
+                else:
+                  # COUNTDOWN IS NOT RUNNING
+                  - if:
+                      condition:
+                          # RELAY IS ON
+                          - switch.is_on: ${device_name}_relay
+                      then:
+                        - if:
+                            condition:
+                              light.is_off: ${device_name}_led
+                            then:
+                              - logger.log: "LED ON (relay on)"
+                              - light.turn_on:
+                                  id: ${device_name}_led
+                                  brightness: !lambda return id(led_brightness);
+                                  transition_length: 0.5s
+                              - text_sensor.template.publish:
+                                  id: mode_text
+                                  state: "POWER ON"
+                      else:
+                        # RELAY IS OFF
+                        - if:
+                            condition:
+                              light.is_on: ${device_name}_led
+                            then:
+                              - logger.log: "LED OFF (relay off)"
+                              - light.turn_off:
+                                  id: ${device_name}_led
+                                  transition_length: 0.5s
+                              - text_sensor.template.publish:
+                                  id: mode_text
+                                  state: "POWER OFF"
+                  # keep device responsive (hint for cooperative multitasking)
+                  - delay: 1s
+            - logger.log: "MAIN LOOP done"
+
+
+  - id: ${device_name}_countdown
+    mode: restart
+    then:
+      - logger.log: "countdown started"
+      - while:
+          condition:
+            lambda: "return id(countdown_seconds) > 20;"
+          then:
+            - lambda: "id(countdown_seconds)-=10;"
+            - logger.log:
+                format: "countdown: %d"
+                args: [ 'id(countdown_seconds)' ]
+            - delay: 10s
+      - logger.log: "countdown finished"
+      - switch.toggle: ${device_name}_relay

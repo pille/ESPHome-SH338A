@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install esphome
           python --version
-          esphome version
+          echo ESPHome $(esphome version)
 
       - name: compile
         run: |
