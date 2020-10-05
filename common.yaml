@@ -1,0 +1,29 @@
+# BEGIN OF common.yaml INCLUDE
+# this contains common configuration for all devices
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: !secret wifi_fallback_ap_ssid
+    password: !secret wifi_fallback_ap_password
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  # disable reboot on 15min without client connected to API
+  reboot_timeout: 0s
+
+ota:
+
+# enable webserver
+web_server:
+  port: 80
+
+# END OF common.yaml INCLUDE
