@@ -10,14 +10,14 @@ it is then compiled using [PlatformIO](https://platformio.org).
 
 
 ## Scope
-
 this project is tied and limited to the cheap EFUN Smart Plug (SH338A), which currently costs about 5€ per unit in a pack of four.
 
 although it most likely runs on other hardware using a ESP8266 based microcontroller, it's not supported, as they use different GPIOs. feel free to fork this configuration and adapt the GPIOs.
 a general rule of thumb: if the device is [supported by tasmota](https://tasmota.github.io/docs/devices/Other-Devices/#plugssockets), it will work.
 
+TODO:
 * no security by default as supposed to run in isolated network
-
+* using github actions
 
 ### Hardware
 * power socket
@@ -38,9 +38,12 @@ a general rule of thumb: if the device is [supported by tasmota](https://tasmota
     * power on/off
     * firmware upgrade
     * debug interface
+    * TODO: countdown interface
   * integrates with [Home-Assistant](https://hass.io) via [Home-Assistant ESPHome Integration](https://www.home-assistant.io/integrations/esphome)
+    * TODO: screenshot
+    * all states reported (blinking LED, button, WIFI, uptime, voltage)
   * OTA firmware upgrade
-  * ESPhome debug interface 
+  * ESPhome debug interface
 
 see [Modes of Operation](#Modes-of-Operation) to figure out how to use them.
 
